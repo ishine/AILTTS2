@@ -17,7 +17,7 @@ class SCCNN(nn.Module):
         self.style_encoder = StyleEncoder(config)
         self.encoder = Encoder(config)
         self.aligner = Aligner(config)
-        self.decoder = Decoder(config)
+        self.final_linear = nn.Linear(config.encoder_hidden, config.voc_in_ch)
         self.style_post = nn.Linear(config.style_vector_dim, config.encoder_hidden)
         # self.post_latent_encoder = PostLatentEncoder(config)
 
@@ -41,18 +41,18 @@ class SCCNN(nn.Module):
         return None, text, mel_target, latent, audio, audio_idx, D, log_D, f0, energy, src_len, mel_len, latent_len, \
             max_src_len, max_mel_len, max_latent_len
 
-    def forward(self, src_seq, src_len, mel_target, latent, mel_len=None, latent_len=None,
+    def forward(self, src_seq, src_len, mel_target, latent, p, e, mel_len=None, latent_len=None,
                     d_target=None, max_src_len=None, max_mel_len=None, max_latent_len=None):
 
         src_mask = get_mask_from_lengths(src_len, max_src_len)
         mel_mask = get_mask_from_lengths(mel_len, max_mel_len) if mel_len is not None else None
         latent_mask = get_mask_from_lengths(latent_len, max_latent_len) if latent_len is not None else None 
         # Extract speaker Vector
-        speaker_vector = self.speaker_encoder(latent, latent_mask)
+        speaker_vector = self.speaker_encoder(mel_target, mel_mask)
         # Encoding
         encoder_output, src_embedded, _ = self.encoder(src_seq, speaker_vector, src_mask)
         
-        style_target = self.style_encoder(latent, encoder_output, latent_mask)
+        style_target, align_maps = self.style_encoder(latent, encoder_output, p, e, speaker_vector, src_mask, latent_mask)
         encoder_output = encoder_output + self.style_post(style_target)
             
         # Aligner
@@ -60,9 +60,10 @@ class SCCNN(nn.Module):
                 encoder_output, src_mask, mel_len, mel_mask, d_target, max_mel_len)
         
         # Just postnet w/o transformer
-        intermediate_output = self.decoder(aligned_output, speaker_vector, mel_mask)
+        # intermediate_output = self.decoder(aligned_output, speaker_vector, mel_mask)
+        intermediate_output = self.final_linear(aligned_output)
 
-        return intermediate_output, src_embedded, speaker_vector, style_target, d_prediction, src_mask, mel_mask, mel_len
+        return intermediate_output, src_embedded, speaker_vector, style_target, d_prediction, align_maps, src_mask, mel_mask, mel_len
 
     def inference(self, speaker_vector, src_seq, style_vector, src_len=None, max_src_len=None, return_attn=False):
         src_mask = get_mask_from_lengths(src_len, max_src_len)
@@ -82,9 +83,9 @@ class SCCNN(nn.Module):
 
         return intermediate_output, src_embedded, d_prediction, src_mask, mel_mask, mel_len
 
-    def get_speaker_vector(self, latent, latent_len = None):
-        latent_mask = get_mask_from_lengths(latent_len) if latent_len is not None else None
-        speaker_vector = self.speaker_encoder(latent, latent_mask)
+    def get_speaker_vector(self, mel_target, mel_len = None):
+        mel_mask = get_mask_from_lengths(mel_len) if mel_len is not None else None
+        speaker_vector = self.speaker_encoder(mel_target, mel_mask)
 
         return speaker_vector
 
@@ -109,11 +110,32 @@ class StyleEncoder(nn.Module):
         self.proj = nn.Conv1d(self.hidden_channels, self.out_channels, 1)
         self.attn = MultiHeadAttention_MAP(config.cross_attn_head, config.style_vector_dim, \
             config.style_vector_dim, config.style_vector_dim, dropout=config.dropout)
+        
+        self.embedding_kernel_size = 3
+        self.dropout = config.duration_dropout
+        self.pitch_embedding = VarianceEmbedding(1, self.out_channels, self.embedding_kernel_size, self.dropout)
+        self.energy_embedding = VarianceEmbedding(1, self.out_channels, self.embedding_kernel_size, self.dropout)
+        self.ln = nn.LayerNorm(self.out_channels)
+        self.post_n_layers = 5
+        
+        self.post_conv = nn.ModuleList()
+        for _ in range(self.post_n_layers):
+            self.post_conv += [
+                nn.Sequential(
+                    nn.Conv1d(
+                        self.out_channels,self.out_channels,kernel_size=3,padding=1),
+                    nn.ReLU(),
+                    LayerNorm(self.out_channels),
+                    nn.Dropout(self.dropout),
+                )
+            ]
+        self.post_linear = nn.Linear(self.out_channels, self.out_channels)
 
-    def forward(self, latent, ph, latent_mask=None):
+    def forward(self, latent, ph, p, e, s, src_mask=None, latent_mask=None):
         '''
         latent: (B, T', 768)
         ph:(B, T, 256)
+        src_mask: (B, T) like ([0. 0. 0. 1.])
         latent_mask: (B, T') like ([0. 0. 0. 1.])
         '''
         # (B, T, T')
@@ -126,19 +148,54 @@ class StyleEncoder(nn.Module):
         latent_mask = latent_mask.unsqueeze(1).expand(-1, self.hidden_channels, -1)
         latent = self.pre(latent) * latent_mask
         latent = self.enc(latent, latent_mask)
-        # (B, 16, T')
+        # (B, 128, T')
         latent = self.proj(latent) * latent_mask[:,:self.out_channels,:]
-        # (B, T', 16)
+        # (B, T', 128)
         latent = latent.transpose(1,2)
         
-        # (B, T, 16)
+        # (B, T, 128)
         ph = self.ph_pre(ph.transpose(1,2)).transpose(1,2)
 
+        # (B, T, 128) (phoneme level)
+        style_vector, cross_attn_maps = self.attn(ph, latent, latent, mask=attn_mask)
         
-        # (B, T, 16) (phoneme level)
-        style_vector, _ = self.attn(ph, latent, latent, mask=attn_mask)        
+        pitch_embedding = self.pitch_embedding(p.unsqueeze(-1))
+        energy_embedding = self.energy_embedding(e.unsqueeze(-1))
+        speaker_embedding = s.unsqueeze(1).expand(-1,style_vector.size(1),-1)
         
-        return style_vector
+        style_vector = self.ln(style_vector) + pitch_embedding + energy_embedding + speaker_embedding
+
+        style_vector = style_vector.transpose(1, 2)
+        for f in self.post_conv:
+            style_vector = f(style_vector)  # (B, 128, T)
+        style_vector = self.post_linear(style_vector.transpose(1, 2))  # (B, T, 128)
+        
+        if src_mask is not None:
+            style_vector = style_vector.masked_fill(src_mask.unsqueeze(-1), 0.)
+
+        return style_vector, cross_attn_maps
+
+
+class VarianceEmbedding(nn.Module):
+    """ Variance Embedding """
+    def __init__(self, input_size, embed_size, kernel_size, dropout):
+        super(VarianceEmbedding, self).__init__()
+        self.conv1 = ConvNorm(input_size, embed_size, kernel_size)
+        self.conv2 = ConvNorm(embed_size, embed_size, kernel_size)
+        self.fc = LinearNorm(embed_size, embed_size)
+
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x):
+        x = x.transpose(1,2)
+        x = self.dropout(self.relu(self.conv1(x)))
+        x = self.dropout(self.relu(self.conv2(x)))
+        x = x.transpose(1,2)
+
+        out = self.dropout(self.fc(x))
+        return out
+
 
 class Encoder(nn.Module):
     ''' Encoder '''
@@ -271,7 +328,7 @@ class SCEncoder(nn.Module):
         enc_output = self.fc_out(enc_output)
         return enc_output, src_embedded, slf_attn
 
-
+'''
 class Decoder(nn.Module):
     """ Decoder """
     def __init__(self, config):
@@ -310,7 +367,7 @@ class Decoder(nn.Module):
         dec_output = self.fc_out(dec_output)
         
         return dec_output
-
+'''
 
 class FFTBlock(nn.Module):
     ''' FFT Block '''
@@ -450,7 +507,7 @@ class SpeakerEncoder(nn.Module):
     ''' SpeakerEncoder '''
     def __init__(self, config):
         super(SpeakerEncoder, self).__init__()
-        self.in_dim = 768 #! for latent vector
+        self.in_dim = config.n_mel_channels #! for latent vector
         self.hidden_dim = config.speaker_hidden
         self.out_dim = config.speaker_vector_dim
         self.kernel_size = config.speaker_kernel_size
@@ -577,3 +634,13 @@ class KernelPredictor(nn.Module):
         p_b = p_b.contiguous().view(batch, self.num_layers, self.out_ch)
 
         return (d_w, d_g, d_b, p_w, p_g, p_b)
+    
+class LayerNorm(torch.nn.Module):
+    def __init__(self, nout: int):
+        super(LayerNorm, self).__init__()
+        self.layer_norm = torch.nn.LayerNorm(nout, eps=1e-12)
+
+    def forward(self, x: torch.Tensor):
+        x = self.layer_norm(x.transpose(1, -1))
+        x = x.transpose(1, -1)
+        return x

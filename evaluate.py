@@ -3,6 +3,7 @@ from dataloader import prepare_dataloader
 import audio as Audio
 import torch.nn.functional as F
 import os
+import utils
 from Loss import MultiResolutionSTFTLoss, DurationLoss
 
 
@@ -39,8 +40,8 @@ def evaluate(args, c, model, vocoder, STFT, logger, current_step):
     
         with torch.no_grad():
             # Forward
-            i_output, src_output, speaker_vector, style_target, log_duration_output, src_mask, mel_mask, _  = model(
-                    text, src_len, mel_target, latent, mel_len, latent_len, \
+            i_output, src_output, speaker_vector, style_target, log_duration_output, align_maps, src_mask, mel_mask, _  = model(
+                    text, src_len, mel_target, latent, f0, energy, mel_len, latent_len, \
                         D, max_src_len, max_mel_len, max_latent_len)
             noise = torch.randn(1, c.voc_noise_dim, i_output.size(1)).cuda()
             fake_audio = vocoder(i_output.transpose(1,2),noise)[:, :, :audio.size(2)]
@@ -68,6 +69,8 @@ def evaluate(args, c, model, vocoder, STFT, logger, current_step):
             if i < 10:
                 fake_audio = fake_audio[0][0].cpu().detach().numpy()
                 logger.add_audio('generated/y_{}'.format(i), fake_audio, current_step, c.sampling_rate)
+                utils.plot_attn(logger,'Validation/align_maps', align_maps, current_step, c.cross_attn_head)
+                
                 
                 if current_step == args.eval_step: 
                     audio = audio[0][0].cpu().detach().numpy()

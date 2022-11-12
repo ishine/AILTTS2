@@ -124,8 +124,8 @@ def main(args, c):
 
             #* Forward
             # Encoder including Aligner
-            i_output, src_output, speaker_vector, style_target, log_duration_output, src_mask, mel_mask, _  = model(
-                    text, src_len, mel_target, latent, mel_len, latent_len, \
+            i_output, src_output, speaker_vector, style_target, log_duration_output, align_maps, src_mask, mel_mask, _  = model(
+                    text, src_len, mel_target, latent, f0, energy, mel_len, latent_len, \
                         D, max_src_len, max_mel_len, max_latent_len)
 
             # Vocoder
@@ -217,6 +217,7 @@ def main(args, c):
                     logger.add_scalar('Train/total_loss', t_l, current_step)
                     logger.add_scalar('Train/duration_loss', d_l, current_step)
                     logger.add_scalar('Train/mtrstft_loss', s_l, current_step)
+                    utils.plot_attn(logger,'Train/align_maps', align_maps, current_step, c.cross_attn_head)
             
             # Save Checkpoint
             if current_step % args.save_step == 0 and current_step != 0:
@@ -273,6 +274,7 @@ if __name__ == "__main__":
     parser.add_argument('--save_step', default=20000, type=int)
     parser.add_argument('--synth_step', default=20000, type=int)
     parser.add_argument('--eval_step', default=10000, type=int)
+        # parser.add_argument('--eval_step', default=10000, type=int)
     # parser.add_argument('--test_step', default=10000, type=int)
     parser.add_argument('--log_step', default=1000, type=int)
     parser.add_argument('--std_step', default=50, type=int)

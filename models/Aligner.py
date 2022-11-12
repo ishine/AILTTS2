@@ -64,7 +64,7 @@ class Aligner(nn.Module):
             mel_mask = utils.get_mask_from_lengths(mel_len)
 
         # Phoneme-wise positional encoding
-        output = output + pe
+        # output = output + pe
         
         return output, log_duration_prediction, mel_len, mel_mask
 

@@ -191,7 +191,7 @@ class MultiHeadAttention_MAP(nn.Module):
         
         self.attention = ScaledDotProductAttention(
             temperature=np.power(d_k, 0.5), dropout = dropout)
-        self.layer_norm = nn.LayerNorm(d_model)
+        # self.layer_norm = nn.LayerNorm(d_model)
 
         self.fc = nn.Linear(n_head * d_v, d_model)
 
@@ -225,7 +225,7 @@ class MultiHeadAttention_MAP(nn.Module):
             sz_b, len_q, -1)  # b x lq x (n*dv)
 
         output = self.dropout(self.fc(output))
-        output = self.layer_norm(output + residual)
+        # output = self.layer_norm(output + residual)
 
         return output, attn
     

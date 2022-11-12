@@ -20,6 +20,23 @@ def process_meta(meta_path):
             sid.append(s)
         return name, text, sid
 
+def plot_alignment(alignment):
+    fig, ax = plt.subplots(figsize=(6, 4))
+    im = ax.imshow(alignment, aspect="auto", origin="lower",
+                   interpolation='none')
+    plt.colorbar(im, ax=ax)
+
+    fig.canvas.draw()
+    plt.close()
+
+    return fig
+
+def plot_attn(logger, name, attns, current_step, head=2):
+    # for i in range(len(attns)):
+    for h in range(head): #* plot first sample of the batch
+        logger.add_figure(name + "_head%s"%h,
+            plot_alignment(attns[h].data.cpu().numpy().T),current_step)
+
 
 def get_param_num(model):
     num_param = sum(param.numel() for param in model.parameters())
