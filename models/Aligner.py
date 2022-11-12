@@ -4,19 +4,20 @@ from models.Modules import LinearNorm, ConvNorm, get_sinusoid_encoding_table
 import utils
 
 
-class VarianceAdaptor(nn.Module):
-    """ Variance Adaptor """
+class Aligner(nn.Module):
+    """ Aligner """
     def __init__(self, config):
-        super(VarianceAdaptor, self).__init__()
+        super(Aligner, self).__init__()
 
-        self.hidden_dim = config.variance_predictor_filter_size
-        self.predictor_kernel_size = config.variance_predictor_kernel_size
-        self.embedding_kernel_size = config.variance_embedding_kernel_size
-        self.dropout = config.variance_dropout
+        self.hidden_dim = config.duration_predictor_filter_size
+        self.predictor_kernel_size = config.duration_predictor_kernel_size
+        self.embedding_kernel_size = config.duration_embedding_kernel_size
+        self.dropout = config.duration_dropout
 
         # Duration
         self.duration_predictor = VariancePredictor(self.hidden_dim, self.hidden_dim,
                                                             self.predictor_kernel_size, dropout=self.dropout)
+        '''
         # Pitch
         self.pitch_predictor = VariancePredictor(self.hidden_dim, self.hidden_dim, self.predictor_kernel_size, 
                                                             dropout=self.dropout)
@@ -25,17 +26,17 @@ class VarianceAdaptor(nn.Module):
         self.energy_predictor = VariancePredictor(self.hidden_dim, self.hidden_dim, self.predictor_kernel_size, 
                                                             dropout=self.dropout)
         self.energy_embedding = VarianceEmbedding(1, self.hidden_dim, self.embedding_kernel_size, self.dropout)
-        # Phoneme
-        self.ln = nn.LayerNorm(self.hidden_dim)
+        '''
 
         # Length regulator
         self.length_regulator = LengthRegulator(self.hidden_dim, config.max_seq_len)
     
     def forward(self, x, src_mask, mel_len=None, mel_mask=None, 
-                        duration_target=None, pitch_target=None, energy_target=None, max_len=None):
+                        duration_target=None, max_len=None):
         # Duration
         log_duration_prediction = self.duration_predictor(x, src_mask)
 
+        '''
         # Pitch & Energy 
         pitch_prediction = self.pitch_predictor(x, src_mask) 
         if pitch_target is not None:
@@ -48,9 +49,10 @@ class VarianceAdaptor(nn.Module):
             energy_embedding = self.energy_embedding(energy_target.unsqueeze(-1))
         else:
             energy_embedding = self.energy_embedding(energy_prediction.unsqueeze(-1))
-
+        
         x = self.ln(x) + pitch_embedding + energy_embedding
-
+        '''
+        
         # Length regulate
         if duration_target is not None:
             output, pe, mel_len = self.length_regulator(x, duration_target, max_len)
@@ -63,7 +65,8 @@ class VarianceAdaptor(nn.Module):
 
         # Phoneme-wise positional encoding
         output = output + pe
-        return output, log_duration_prediction, pitch_prediction, energy_prediction, mel_len, mel_mask
+        
+        return output, log_duration_prediction, mel_len, mel_mask
 
 
 class LengthRegulator(nn.Module):

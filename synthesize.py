@@ -88,9 +88,9 @@ def synthesize(args, text, model, _stft):
     if not os.path.exists(save_path):
         os.makedirs(save_path, exist_ok=True)
 
-    # Extract style vector
+    # Extract speaker vector
     latent = wav2vec2(wav16)
-    style_vector = model.get_style_vector(latent)
+    speaker_vector = model.get_speaker_vector(latent)
     mel_ref_ = ref_mel.cpu().squeeze().transpose(0, 1).detach()
     np.save(save_path + 'ref_{}.npy'.format(args.ref_audio[-12:-4]), np.array(mel_ref_.unsqueeze(0)))
     
@@ -99,7 +99,7 @@ def synthesize(args, text, model, _stft):
         for txt in text:
             src = preprocess_english(txt, args.lexicon_path).unsqueeze(0)
             src_len = torch.from_numpy(np.array([src.shape[1]])).to(device=device)
-            mel_output = model.inference(style_vector, src, src_len)[0]
+            mel_output = model.inference(speaker_vector, src, src_len)[0]
             mel_ = mel_output.cpu().squeeze().transpose(0, 1).detach()
             name = args.ref_audio[-12:-4] + '_' + txt[:10].replace(' ', '_')
             np.save(save_path + '{}.npy'.format(name), np.array(mel_.unsqueeze(0)))
@@ -107,7 +107,7 @@ def synthesize(args, text, model, _stft):
     else:
         src = preprocess_english(text, args.lexicon_path).unsqueeze(0)
         src_len = torch.from_numpy(np.array([src.shape[1]])).to(device=device)
-        mel_output = model.inference(style_vector, src, src_len)[0]
+        mel_output = model.inference(speaker_vector, src, src_len)[0]
         mel_ = mel_output.cpu().squeeze().transpose(0, 1).detach()
         name = args.ref_audio[-12:-4] + '_' + text[:10].replace(' ', '_')
         np.save(save_path + '{}.npy'.format(name), np.array(mel_.unsqueeze(0)))

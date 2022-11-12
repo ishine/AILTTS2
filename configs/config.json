@@ -14,7 +14,7 @@
     "n_mel_channels": 80,
     "max_seq_len": 1000,
 
-    "encoder_layer": 4,
+    "encoder_layer": 2,
     "encoder_head": 2,
     "encoder_hidden": 256,
     "decoder_layer": 4,
@@ -23,27 +23,51 @@
     
     "enc_ffn_in_ch_size": 8,
     "enc_ffn_out_ch_size": 8,
-    "enc_ffn_style_conv1d_kernel_size": 7,
+    "enc_ffn_speaker_conv1d_kernel_size": 7,
 
     "fft_conv1d_filter_size": 1024,
     "fft_conv1d_kernel_size": [9, 1],
     "dropout": 0.1,
 
-    "variance_predictor_filter_size": 256,
-    "variance_predictor_kernel_size": 3,
-    "variance_embedding_kernel_size": 3,
-    "variance_dropout": 0.5,
+    "duration_predictor_filter_size": 256,
+    "duration_predictor_kernel_size": 3,
+    "duration_embedding_kernel_size": 3,
+    "duration_dropout": 0.5,
 
-    "style_hidden": 128,
-    "style_head": 2,
-    "style_kernel_size": 5,
+    "speaker_hidden": 128,
+    "speaker_head": 2,
+    "speaker_kernel_size": 5,
+    "speaker_vector_dim": 128,
+
     "style_vector_dim": 128,
+    "style_hidden": 256,
+    "cross_attn_head": 2,
 
-    "batch_size": 12,
+    "batch_size": 64,
     "n_warm_up_step": 4000,
     "grad_clip_thresh": 1.0,
+    "mtrstft_only": 50000,
 
-    "betas":[0.9, 0.98],
-    "eps":1e-9
+    "learning_rate": 0.0002,
+    "betas":[0.8, 0.99],
+    "eps":1e-9,
+    "lr_decay":0.999875,
+
+    "voc_in_ch": 256,
+    "voc_channel_size": 16,
+    "dilations": [1,3,9,27],
+    "strides": [8,8,4],
+    "lReLU_slope": 0.2,
+    "voc_noise_dim": 64,
+    "mpd_periods": [2,3,5,7,11],
+    "mpd_kernel_size": 5,
+    "mpd_stride": 3,
+    "mpd_lReLU_slope": 0.2,
+    "mpd_use_spectral_norm": false,
+    "mrd_resolutions_22k": "[(1024,120,600), (2048,240,1200),(512,50,240)]",
+    "mrd_resolutions_16k": "[(800,80,400), (1600,160,800),(320,32,160)]",
+    "mrd_lReLU_slope": 0.2,
+    "segment_size": 8192
+
 }
 

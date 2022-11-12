@@ -1,19 +1,19 @@
 # SC-CNN : An Effective Style Conditioning Method for Zero-Shot Text-to-Speech Systems
-Thanks to [StyleSpeech](https://arxiv.org/abs/2106.03153), we built up our codes based on [Link](https://github.com/KevinMIN95/StyleSpeech)
+<!-- Thanks to [StyleSpeech](https://arxiv.org/abs/2106.03153), we built up our codes based on [Link](https://github.com/KevinMIN95/StyleSpeech) -->
 
 0. [LibriTTS]((https://research.google/tools/datasets/libri-tts/)) dataset (train-clean-100 and train-clean-360) is used.
-1. You can select sampling rate for both 22050Hz and 16000Hz.
+<!-- 1. You can select sampling rate for both 22050Hz and 16000Hz. -->
 
-## Materials
-- [Demo page](https://hcy71o.github.io/SC-CNN-demo/)
+<!-- ## Materials
+- [Demo page](https://hcy71o.github.io/SC-CNN-demo/) -->
 <!-- - [TODO][Pretrained Model] -->
 <!-- - [TODO] Add pretrained HiFi-GAN and its inference code -->
 
-## Prerequisites
+<!-- ## Prerequisites
 - Clone this repository.
-- Install python requirements. Please refer [requirements.txt](requirements.txt)
+- Install python requirements. Please refer [requirements.txt](requirements.txt) -->
 
-## Preparing
+<!-- ## Preparing
 0. Run 
 ```
 python prepare_align.py --data_path [LibriTTS DATAPATH]
@@ -33,17 +33,17 @@ $ mfa align ......LibriTTS/wav22 lexicon.txt english_us_arpa .........LibriTTS/T
 ```
 python preprocess.py
 ```
-2-0. Check input&output data paths.
+2-0. Check input&output data paths. -->
 
-## Training
+<!-- ## Training
 ```
 python train.py
 ```
 0. Change default settings  --data_path [Preprocessed LibriTTS DATAPATH] --save_path [Experiment SAVEPATH]
-1. You can change hyperparameters of SC-CNN (kernel_size, channels), sampling rate (16 or 22.05kHz) or other model configurations in configs/config.json
+1. You can change hyperparameters of SC-CNN (kernel_size, channels), sampling rate (16 or 22.05kHz) or other model configurations in configs/config.json -->
 
-## Inference
+<!-- ## Inference
 0. Mel generation
 ```
 python synthesize.py --checkpoint_path [CKPT PATH] --ref_audio [REF AUDIO PATH] --text [INPUT TEXT]
-```
+``` -->

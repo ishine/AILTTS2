@@ -4,12 +4,16 @@ import json
 import os
 from text import text_to_sequence
 from utils import pad_1D, pad_2D, process_meta
+from preprocessors.utils import get_alignment
+import tgt
+import librosa
+import torch
+import random
 
 
-def prepare_dataloader(data_path, filename, batch_size, shuffle=True, num_workers=0, meta_learning=False, seed=0):
-    dataset = TextMelDataset(data_path, filename)
+def prepare_dataloader(data_path, filename, batch_size, segment_size=8192, shuffle=True, split=True, num_workers=2, meta_learning=False, seed=0):
+    dataset = TextMelDataset(data_path, filename, segment_size=segment_size, split=split)
     sampler = None
-    shuffle = shuffle if sampler is None else None
     loader = DataLoader(dataset, sampler=sampler, batch_size=batch_size, shuffle=shuffle, 
                     collate_fn=dataset.collate_fn, drop_last=True, num_workers=num_workers) 
     return loader
@@ -26,7 +30,7 @@ def norm_mean_std(x, mean, std):
     return x
 
 class TextMelDataset(Dataset):
-    def __init__(self, data_path, filename="train.txt",):
+    def __init__(self, data_path, filename="train.txt", segment_size=8192, split=True):
         self.data_path = data_path
         self.basename, self.text, self.sid = process_meta(os.path.join(data_path, filename))
 
@@ -42,7 +46,10 @@ class TextMelDataset(Dataset):
         self.energy_stat = [67.17, 0.0, 20.80, 15.56]
         
         self.create_sid_to_index()
+        self.segment_size = segment_size
+        self.split = split
         print('Speaker Num :{}'.format(len(self.sid_dict)))
+        print('Loading waveform with 16kHz sampling rate')
     
     def create_speaker_table(self, sids):
         speaker_ids = np.sort(np.unique(sids))
@@ -62,7 +69,7 @@ class TextMelDataset(Dataset):
     def __len__(self):
         return len(self.text)
 
-        def __getitem__(self, idx):
+    def __getitem__(self, idx):
         basename = self.basename[idx]
         sid = self.sid_dict[self.sid[idx]]
         phone = np.array(text_to_sequence(self.text[idx], []))
@@ -86,21 +93,60 @@ class TextMelDataset(Dataset):
         energy = np.load(energy_path)
         energy = replace_outlier(energy, self.energy_stat[0], self.energy_stat[1])
         energy = norm_mean_std(energy, self.energy_stat[2], self.energy_stat[3])
+
+        #* wav load (same setting with libritts.py), SR = 16000
+        resampled_wav_path = os.path.join(
+            self.data_path, 'wav16', str(self.sid[idx]), '{}.wav'.format(basename))
+
+        trimmed_path = resampled_wav_path.replace('.wav','.trimmed_wav.pt')
+        pase_len = len(mel_target)
+        
+        if os.path.exists(trimmed_path):
+            audio = torch.load(trimmed_path)
+        else:
+            tg_path = os.path.join(self.data_path, 'TextGrid', str(self.sid[idx]), '{}.TextGrid'.format(basename))
+            textgrid = tgt.io.read_textgrid(tg_path)
+            _, _, start, end = get_alignment(textgrid.get_tier_by_name('phones'), 16000, 256)
+            audio, _ = librosa.load(resampled_wav_path, sr=None)
+            audio = audio[int(16000*start):int(16000*end)]
+            audio = torch.FloatTensor(audio)
+            audio = audio.unsqueeze(0)
+            audio = audio[:,:pase_len*256]
+            torch.save(audio, trimmed_path)
+        
+        audio_start_idx = 0 #* Training -> n / Test -> 0
+        
+        if self.split:
+            if pase_len > self.segment_size//256: #audio.size(1) >= self.segment_size:
+                audio = torch.nn.functional.pad(audio, (0, self.segment_size), 'constant')
+                max_audio_start_idx = pase_len - self.segment_size//256 ## margin 2
+                audio_start_idx = random.randint(0, max_audio_start_idx)
+                # print(audio.size(1), audio_start_idx*256, audio_start_idx*256 + self.segment_size)
+                audio = audio[:, audio_start_idx*256: audio_start_idx*256 + self.segment_size]
+            else:
+                audio = torch.nn.functional.pad(audio, (0, self.segment_size - audio.size(1)), 'constant')
+                # print('audio length forced to be :',audio.size(1))
+        
+        audio = audio.squeeze(0)
         
         sample = {"id": basename,
                 "sid": sid,
                 "text": phone,
                 "mel_target": mel_target,
                 "latent": latent,
+                "audio": audio,
+                "audio_start_idx": audio_start_idx,
                 "D": D,
                 "f0": f0,
                 "energy": energy}
-                
+            
         return sample
 
     def reprocess(self, batch, cut_list):
         ids = [batch[ind]["id"] for ind in cut_list]
         sids = [batch[ind]["sid"] for ind in cut_list]
+        audios = [batch[ind]["audio"] for ind in cut_list]
+        audio_idxs = [batch[ind]["audio_start_idx"] for ind in cut_list]
         latents = [batch[ind]["latent"] for ind in cut_list]
         texts = [batch[ind]["text"] for ind in cut_list]
         mel_targets = [batch[ind]["mel_target"] for ind in cut_list]
@@ -134,6 +180,8 @@ class TextMelDataset(Dataset):
                "text": texts,
                "mel_target": mel_targets,
                "latent": latents,
+               "audio": audios,
+               "audio_start_idx": audio_idxs,
                "D": Ds,
                "log_D": log_Ds,
                "f0": f0s,
